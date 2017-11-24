@@ -1,6 +1,6 @@
 # iRestore
 
-This program recovers files from the FAT filesystem.
+This program recovers files from the FAT file system.
 
 Limitations
 -----------
@@ -11,9 +11,9 @@ This utility was created in two days, and it shows:
 2. The program has not been tested on FAT12 and FAT32 disk images.
 3. You can not load mounted disk images.
 4. Only the data on the DIMG file is changed. In order to get the recovered files, extract files with 7zip.
-5. Hardly any bug testing has been done. The program may corrupt your image.
+5. I did some bug testing. The program may corrupt your image.
 
-Do not use this utlity for serious file recovering. Backup your files.
+Do not use this utility for serious file recovering. Backup your files.
 
 How to use
 ----------
