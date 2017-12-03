@@ -17,8 +17,9 @@ Data recovery:
 
 Data carving:
 
-1. Data carving is done hackingly and checks data by sector instead of cluster. Files that start and end in a sector will crash the utility.
-2. File signatures and footers are embedded into the program.
+1. The program will not recover files from a fragmented disk.
+2. Data carving is done hackingly and checks data by sector instead of cluster. Files that start and end in a sector will crash the utility.
+3. File signatures and footers are embedded into the program.
 
 Do not use this utlity for serious file recovering. Backup your files.
 
