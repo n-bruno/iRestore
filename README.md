@@ -5,7 +5,7 @@ This program recovers files from the FAT filesystem.
 Limitations
 -----------
 
-This utility was created in two days, and it shows:
+This utility was created in three days, and it shows:
 
 1. The program will not recover files from a fragmented disk.
 2. The program has not been tested on FAT12 and FAT32 disk images.
@@ -18,7 +18,7 @@ Do not use this utlity for serious file recovering. Backup your files.
 How to use
 ----------
 1. File > Load and select a DIMG file to load an image file
-2. Press the Recover
+2. Click the "Recover" or "Carve" button. "Recover" uses the root directory to restore image. The "Carve" button restores images from the Data Region.
 3. Press save.
 
 Notes

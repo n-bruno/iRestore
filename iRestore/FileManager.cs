@@ -1,11 +1,15 @@
-﻿using iTired;
+﻿using iRestore;
+using iTired;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-namespace iRestore
+using static iRestore.HeaderChecker;
+
+namespace iCarve
 {
+    delegate int ClusterDelegate(int sector);
     public class FileManager
     {
         public enum FAT { Invalid, FAT12, FAT16, FAT32 }
@@ -37,12 +41,218 @@ namespace iRestore
             //split the data by sectors
         }
 
+        public bool changeFATTable(uint startClusterNo, uint clustersInSize)
+        {
+            bool success = true;
+            if (startClusterNo < Constants.START_CLUSTER)
+                throw new FormatException();
+
+            List<byte[]> FATChain = new List<byte[]>();
+
+            for (uint t = startClusterNo + 1; t < startClusterNo + clustersInSize; t++)
+            {
+                byte[] entry;
+                switch (FATVersion)
+                {
+                    case (int)FAT.FAT12:
+                        entry = BitConverter.GetBytes((byte)t);
+                        break;
+                    case (int)FAT.FAT16:
+                        entry = BitConverter.GetBytes((ushort)t);
+                        break;
+                    case (int)FAT.FAT32:
+                        entry = BitConverter.GetBytes(t);
+                        break;
+                    default:
+                        throw new Exception();
+                }
+                FATChain.Add(entry);
+            }
+
+            byte[] eofArray;
+            switch (FATVersion)
+            {
+                case (int)FAT.FAT12:
+                    eofArray = new byte[] { EOFMarker };
+                    break;
+                case (int)FAT.FAT16:
+                    eofArray = new byte[] { EOFMarker, EOFMarker };
+                    break;
+                case (int)FAT.FAT32:
+                    eofArray = new byte[] { EOFMarker, EOFMarker, EOFMarker };
+                    break;
+                default:
+                    throw new Exception();
+            }
+
+            FATChain.Add(eofArray);
+
+            int multiplier = Constants.NULLED;
+            switch (FATVersion)
+            {
+                case (int)FAT.FAT12:
+                    multiplier = 1;
+                    break;
+                case (int)FAT.FAT16:
+                    multiplier = 2;
+                    break;
+                case (int)FAT.FAT32:
+                    multiplier = 3;
+                    break;
+                default:
+                    throw new Exception();
+            }
+
+            uint start_offset = (uint)(multiplier * startClusterNo);
+
+            int iter = Constants.NULLED;
+            foreach (byte[] b in FATChain)
+            {
+                int cluster_ = (int)start_offset / BytesPerSector + FAT1_start_sector,
+                    offset = (int)start_offset % BytesPerSector;
+
+                int prev = iter;
+                for (int i = 0; i < b.Length; i++)
+                {
+                    if (data[cluster_ * BytesPerSector + offset + prev++] != 0x00) //Does the file already have a FAT entry?
+                    {
+                        success = false;    //don't write to FAT table
+                        break;              //and mosey out of here
+                    }
+                }
+
+                if (success)
+                {
+                    foreach (byte by in b)
+                        data[cluster_ * BytesPerSector + offset + iter++] = by;
+                }
+            }
+
+            return success;
+        }
+
         private const int EOFMarker = 0xFF;
 
-        /// <summary>
-        /// Restores files by reading the Root Directory for any deleted entries.
-        /// </summary>
-        /// <returns></returns>
+        public int Carve()
+        {
+            int filesRestored = 0;
+            RootDirectory r;
+            ClusterDelegate getClusterNo = delegate (int sector)
+            { return ((sector - DataRegion_start_sector) / SectorsPerCluster) + Constants.START_CLUSTER; };
+
+            List<RootDirectory> root_entries = new List<RootDirectory>();
+
+            uint 
+                start_cluster_for_file = Constants.NULLED, 
+                fileSize = Constants.NULLED,
+                start_sector_for_file = Constants.NULLED;
+            bool foundHeader = false;
+
+
+            /*
+             * Read all root directory entries
+             */
+            for (int j = 0; j < RootDirectory_size; j++)
+            {
+                byte[][] RootDirectoryEntries = split(getSector(j + RootDirectory_start_sector), Constants.RD_ENTRY_LENGTH);
+                for (int i = 0; i < RootDirectoryEntries.Length; i++)
+                    if (!RootDirectoryEntries[i].All(singlByte => singlByte == 0))
+                        root_entries.Add(new RootDirectory(RootDirectoryEntries[i]));
+            }
+
+            /*
+             * This for-loop reads each cluster in the data region and
+             * changes the FAT region (as necessary).
+             */
+            for (int sector = DataRegion_start_sector; sector < data.Length / BytesPerSector && sector < ushort.MaxValue; sector++)
+            {
+                /*
+                 * Prepare yourself for unneccessary unit and int casts
+                 * and cluster and sector conversions.
+                 */
+                int type = HeaderChecker.checkClusterForFooterAndHeader(getSector(sector), ref fileSize, ref fileSize);
+
+                switch (type)
+                {
+                    case (int)headerFooter.GIFHeader:
+                    case (int)headerFooter.JPGHeader:
+                    case (int)headerFooter.PNGHeader:
+                        if (foundHeader)
+                            throw new Exception();
+                        else foundHeader = true;
+                        start_sector_for_file = (uint)sector;
+                        break;
+                    case (int)headerFooter.BMPHeader:
+                        if (foundHeader)
+                            throw new Exception();
+                        start_cluster_for_file = (uint)getClusterNo(sector);
+
+                        if (changeFATTable(start_cluster_for_file, (uint)(Math.Ceiling((double)fileSize / bytesPerCluster))))
+                        {
+                            r = new RootDirectory();
+                            r.FileName = (++filesRestored).ToString();
+                            r.FileExtension = HeaderChecker.getExtension(type);
+                            r.byteSize = fileSize;
+                            r.start_cluster = (ushort)start_cluster_for_file;
+                            root_entries.Add(r);
+                        }
+                        break;
+                    case (int)headerFooter.GIFFooter:
+                    case (int)headerFooter.JPGFooter:
+                    case (int)headerFooter.PNGFooter:
+                        if (!foundHeader)
+                            throw new Exception();
+                        else foundHeader = false;
+                        int aa2 = getClusterNo(sector);
+                        uint file_cluster_length = (uint)(getClusterNo(sector) - getClusterNo((int)start_sector_for_file)) + 1;
+
+                        /*
+                         * Oh my god, what have I created.
+                         */
+                        if (changeFATTable((uint)getClusterNo((int)start_sector_for_file), file_cluster_length))
+                        {
+                            r = new RootDirectory();
+                            r.FileName = (++filesRestored).ToString();
+                            r.FileExtension = HeaderChecker.getExtension(type);
+
+                            int lastSectorLength = RemoveTrailingZeros(getSector(sector)).Length;
+                            r.byteSize = (uint)(lastSectorLength + ((sector - start_sector_for_file) * BytesPerSector));
+
+                            r.start_cluster = (ushort)getClusterNo((int)start_sector_for_file);
+                            root_entries.Add(r);
+                        }
+                        break;
+                    case (int)headerFooter.Invalid:
+                        break;
+                    default:
+                        throw new Exception();
+                }
+            }
+
+
+
+            if (filesRestored != 0)
+            {
+                //Code for reading the current root directories can also be placed here.
+
+                /*
+                 * Get the Root directory data in terms of sector byte data
+                 */
+                int clustersToReserve = (int)(Math.Floor(((double)root_entries.Count * Constants.RD_ENTRY_LENGTH) / BytesPerSector));
+                List<byte[]> dataToWrite = new List<byte[]>();
+
+                foreach (RootDirectory rr in root_entries)
+                    dataToWrite.Add(rr.ByteData);
+
+                int k = 0;
+                foreach (byte[] b in dataToWrite)
+                    foreach (byte bb in b)
+                        data[RootDirectory_start_sector * BytesPerSector + k++] = bb;
+            }
+
+            return filesRestored;
+        }
+
         public int Restore()
         {
             int FileRestored = 0;
@@ -51,21 +261,11 @@ namespace iRestore
 
             for (int j = 0; j < RootDirectory_size; j++)
             {
-                byte[][] RootDirectoryEntries = split(getCluster(j + RootDirectory_start_sector), Constants.RD_ENTRY_LENGTH);
+                byte[][] RootDirectoryEntries = split(getSector(j + RootDirectory_start_sector), Constants.RD_ENTRY_LENGTH);
                 root_directoryEntries = root_directoryEntries.Concat(RootDirectoryEntries).ToArray();
             }
 
             RootDirectory rd;
-
-            /*int startIndex = 0;
-
-            switch (FATVersion)
-            {
-                case (int)FAT.FAT12: startIndex = 2; break;
-                case (int)FAT.FAT16: startIndex = 3; break;
-                case (int)FAT.FAT32: startIndex = 8; break;
-                default: throw new Exception();
-            }*/
 
             for (int i = 0; i < root_directoryEntries.Length; i++)
             {
@@ -84,78 +284,7 @@ namespace iRestore
                             start_cluster = rd.start_cluster,
                             clusters_inSize = (uint)Math.Ceiling(temp);
 
-                        if (start_cluster >= 2)
-                        {
-                            List<byte[]> FATChain = new List<byte[]>();
-
-                            for (uint t = start_cluster + 1; t < start_cluster + clusters_inSize; t++)
-                            {
-                                byte[] entry;
-                                switch (FATVersion)
-                                {
-                                    case (int)FAT.FAT12:
-                                        entry = BitConverter.GetBytes((byte)t);
-                                        break;
-                                    case (int)FAT.FAT16:
-                                        entry = BitConverter.GetBytes((ushort)t);
-                                        break;
-                                    case (int)FAT.FAT32:
-                                        entry = BitConverter.GetBytes(t);
-                                        break;
-                                    default:
-                                        throw new Exception();
-                                }
-                                FATChain.Add(entry);
-                            }
-
-                            byte[] eofArray;
-                            switch (FATVersion)
-                            {
-                                case (int)FAT.FAT12:
-                                    eofArray = new byte[] { EOFMarker };
-                                    break;
-                                case (int)FAT.FAT16:
-                                    eofArray = new byte[] { EOFMarker, EOFMarker };
-                                    break;
-                                case (int)FAT.FAT32:
-                                    eofArray = new byte[] { EOFMarker, EOFMarker, EOFMarker };
-                                    break;
-                                default:
-                                    throw new Exception();
-                            }
-
-                            FATChain.Add(eofArray);
-
-                            int multiplier = 0;
-                            switch (FATVersion)
-                            {
-                                case (int)FAT.FAT12:
-                                    multiplier = 1;
-                                    break;
-                                case (int)FAT.FAT16:
-                                    multiplier = 2;
-                                    break;
-                                case (int)FAT.FAT32:
-                                    multiplier = 3;
-                                    break;
-                                default:
-                                    throw new Exception();
-                            }
-
-                            uint start_offset = (uint)(multiplier * start_cluster);
-
-
-                            int iter = 0;
-                            foreach (byte[] b in FATChain)
-                            {
-                                int cluster_ = (int)start_offset / BytesPerSector + FAT1_start_sector,
-                                    offset = (int)start_offset % BytesPerSector;
-
-                                foreach (byte by in b)
-                                    writeToArray(cluster_, offset + iter++, by);
-                            }
-                        }
-                        else throw new FormatException();
+                        changeFATTable(start_cluster, clusters_inSize);
                     }
                 }
             }
@@ -169,17 +298,10 @@ namespace iRestore
         public void Save()
         { File.WriteAllBytes(filePath, data); }
 
-        private void FromShort(ushort number, out byte byte1, out byte byte2)
-        {
-            byte2 = (byte)(number >> 8);
-            byte1 = (byte)(number & 0xFF);
-        }
-
         private void writeToArray(int cluster, int offset, byte value)
         {
             if (offset > BytesPerSector)
                 throw new Exception();
-
             data[cluster * BytesPerSector + offset] = value;
         }
 
@@ -190,13 +312,6 @@ namespace iRestore
             return data[cluster * BytesPerSector + offset];
         }
 
-        private byte[] getCluster(int cluster)
-        {
-            byte[] array = new byte[BytesPerSector];
-            Array.ConstrainedCopy(data, cluster * BytesPerSector, array, 0, BytesPerSector);
-            return array;
-        }
-
         private byte[][] split(byte[] array, int chunkSize)
         {
             return array
@@ -205,6 +320,14 @@ namespace iRestore
                 .Select(grp => grp.Select(x => x.Value).ToArray())
                 .ToArray();
         }
+
+        private byte[] getSector(int cluster)
+        {
+            byte[] array = new byte[BytesPerSector];
+            Array.ConstrainedCopy(data, cluster * BytesPerSector, array, 0, BytesPerSector);
+            return array;
+        }
+
         private ushort getUShort(int address)
         { return BitConverter.ToUInt16(new byte[] { ReadArray(0, address), ReadArray(0, address + 1) }, 0); }
         public int FATVersion { private set; get; }
@@ -219,6 +342,10 @@ namespace iRestore
         public int bytesPerCluster { get { return BytesPerSector * SectorsPerCluster; } }
         public int RootDirectory_start_sector { get { return FAT1_start_sector + SectorsPerFAT * NumberOfFATCopies; } }
         public int RootDirectory_size { get { return (NumberOfRootDirectoryEntries * Constants.RD_ENTRY_LENGTH) / BytesPerSector; } }
+        public int DataRegion_start_sector { get { return RootDirectory_start_sector + RootDirectory_size; } }
+
+
+
         #endregion
     }
 }

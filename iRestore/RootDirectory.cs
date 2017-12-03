@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Text;
-
 namespace iTired
 {
     public class RootDirectory
@@ -23,8 +23,12 @@ namespace iTired
             modifyDate_address = 24,
 
             startingCluster_address = 26,
+            startingCluster_size = 2,
 
-            fileSize_address = 28;
+            fileSize_address = 28,
+            fileSize_size = 4;
+
+
 
         private byte[] data;
         public RootDirectory(byte[] data)
@@ -37,22 +41,45 @@ namespace iTired
         public RootDirectory(string filePath)
         {
             data = File.ReadAllBytes(filePath);
-
             if (!(data.Length == Constants.RD_ENTRY_LENGTH))
                 throw new ArgumentException();
         }
 
+        public RootDirectory()
+        { data = new byte[Constants.RD_ENTRY_LENGTH]; }
+
+        public byte[] ByteData { get { return data; } }
+
+
         public string FileName
-        { get { return Encoding.ASCII.GetString(data, fileName_address, fileName_size); } }
+        {
+            get { return Encoding.ASCII.GetString(data, fileName_address, fileName_size); }
+            set
+            {
+                string val = value;
+                while (val.Length < fileName_size)
+                    val += " ";
+                Array.Copy(Encoding.ASCII.GetBytes(val), 0, data, fileName_address, fileName_size);
+            }
+        }
 
         public string FileExtension
-        { get { return Encoding.ASCII.GetString(data, fileExt_address, fileExt_size); } }
+        {
+            get { return Encoding.ASCII.GetString(data, fileExt_address, fileExt_size); }
+            set
+            {
+                string val = value;
+                while (val.Length < fileExt_address)
+                    val += " ";
+                Array.Copy(Encoding.ASCII.GetBytes(val), 0, data, fileExt_address, fileExt_size);
+            }
+        }
 
         private const byte
-            mask0 = 1,
-            mask1 = 2,
-            mask2 = 4,
-            mask3 = 8,
+            mask0 = 01,
+            mask1 = 02,
+            mask2 = 04,
+            mask3 = 08,
             mask4 = 16,
             mask5 = 32;
 
@@ -81,20 +108,23 @@ namespace iTired
                     }, 0
                     );
             }
+            set
+            {
+                byte[] b = BitConverter.GetBytes(value);
+                while (b.Length < startingCluster_size)
+                    b = ((new byte[] { 0x00 }).Concat(b)).ToArray();
+                Array.Copy(b, 0, data, startingCluster_address, startingCluster_size);
+            }
         }
 
         public string createdDate
         { get { return generateDate(data[createDate_address], data[createDate_address + 1]); } }
-
         public string createdTime
         { get { return generateTime(data[createTime_address], data[createTime_address + 1]); } }
-
         public string modifyDate
         { get { return generateDate(data[modifyDate_address], data[modifyDate_address + 1]); } }
-
         public string modifyTime
         { get { return generateTime(data[modifyTime_address], data[modifyTime_address + 1]); } }
-
         public string accessDate
         { get { return generateDate(data[accessDate_address], data[accessDate_address + 1]); } }
 
@@ -110,6 +140,13 @@ namespace iTired
                         data[fileSize_address + 2],
                         data[fileSize_address + 3]
                     }, 0);
+            }
+            set
+            {
+                byte[] b = BitConverter.GetBytes(value);
+                while (b.Length < fileSize_size)
+                    b = ((new byte[] { 0x00 }).Concat(b)).ToArray();
+                Array.Copy(b, 0, data, fileSize_address, fileSize_size);
             }
         }
 
@@ -148,15 +185,12 @@ namespace iTired
             int day, month, year;
             generateDate(byte1, byte2, out day, out month, out year);
 
-
             string s = "";
             if (day == 0 || month == 0)
                 s = Constants.INVALID;
             else s = year + sep + month.ToString(d) + sep + day.ToString(d);
             return s;
         }
-
-
 
         private const byte
             seconds_mask = 0x1F,

@@ -2,9 +2,9 @@
 using System;
 using System.IO;
 using System.Windows.Forms;
-using static iRestore.FileManager;
+using static iCarve.FileManager;
 
-namespace iRestore
+namespace iCarve
 {
     public partial class Form_main : Form
     {
@@ -28,7 +28,7 @@ namespace iRestore
 
                         if (fm.FATVersion != (int)FAT.Invalid)
                         {
-                            button_restore.Enabled = true;
+                            button_restore.Enabled = button_carve.Enabled = true;
                             saveToolStripMenuItem.Enabled = false;
                             Text = Constants.PROGRAM_NAME + Constants.SEPERATOR + FD.FileName;
                         }
@@ -86,6 +86,8 @@ namespace iRestore
             { MessageBox.Show("Permission denied."); }
             catch (OutOfMemoryException)
             { MessageBox.Show("Ran out of memmory."); }
+            catch (IOException)
+            { MessageBox.Show("I/O Exception"); }
         }
 
         private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
@@ -93,7 +95,30 @@ namespace iRestore
             MessageBox.Show(
                "Created by Nick Bruno.\n" +
                "This utility recovers files from FAT file system.\n" +
-               "GitHub: https://github.com/wholetthedogsoutside/");
+               "GitHub: https://github.com/wholetthedogsoutside/ \n\n" +
+               "This utility was made from the information I learned from Professor Avinash Srinivasan's "+
+               "class.");
+        }
+
+        private void button_carve_Click(object sender, EventArgs e)
+        {
+            int recoverCount = fm.Carve();
+            string message;
+            switch (recoverCount)
+            {
+                case 0:
+                    message = "No files have been recovered.";
+                    break;
+                case 1:
+                    message = "One file has been recovered.";
+                    saveToolStripMenuItem.Enabled = true;
+                    break;
+                default:
+                    message = recoverCount + " files have been recovered.";
+                    saveToolStripMenuItem.Enabled = true;
+                    break;
+            }
+            MessageBox.Show(message);
         }
     }
 }

@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace iRestore.Properties
+namespace iCarve.Properties
 {
 
 
