@@ -7,7 +7,7 @@ Limitations and issues
 
 This utility was created in four days, and it shows.
 
-Data recovery button:
+Data recovery:
 
 1. The program will not recover files from a fragmented disk.
 2. The program has not been tested on FAT12 and FAT32 disk images.
