@@ -8,7 +8,7 @@
             NULLED = 0;
         public const string
             INVALID = "N/A",
-            PROGRAM_NAME = "iCarve",
+            PROGRAM_NAME = "iRestore",
             SEPERATOR = " - ";
     }
 }
