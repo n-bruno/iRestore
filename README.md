@@ -1,6 +1,6 @@
 # iRestore
 
-This program recovers files from the FAT filesystem.
+This program recovers files from the FAT filesystem. Made for the class CIS 3605.
 
 Limitations and issues
 -------------------
